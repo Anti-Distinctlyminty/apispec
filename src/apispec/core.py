@@ -337,6 +337,11 @@ class APISpec:
                     if "schema" in content:
                         content["schema"] = self.get_ref("schema", content["schema"])
 
+    def _resolve_examples(self, obj):
+        """Replace example reference as string with a $ref"""
+        for name, example in obj.get("examples", {}).items():
+            obj["examples"][name] = self.get_ref("example", example)
+
     def clean_parameters(self, parameters):
         """Ensure that all parameters with "in" equal to "path" are also required
         as required by the OpenAPI specification, as well as normalizing any
@@ -371,6 +376,9 @@ class APISpec:
             if parameter["in"] == "path":
                 parameter["required"] = True
 
+            if self.openapi_version.major >= 3:
+                self._resolve_examples(parameter)
+
         return [self.get_ref("parameter", p) for p in parameters]
 
     def clean_operations(self, operations):
@@ -398,6 +406,9 @@ class APISpec:
             # OAS 3
             if "requestBody" in operation:
                 self._resolve_schema(operation["requestBody"])
+                for media_type in operation["requestBody"]["content"].values():
+                    self._resolve_examples(media_type)
+
             if "responses" in operation:
                 responses = OrderedDict()
                 for code, response in operation["responses"].items():
@@ -407,5 +418,8 @@ class APISpec:
                         if self.openapi_version.major < 3 and code != "default":
                             warnings.warn("Non-integer code not allowed in OpenAPI < 3")
                     self._resolve_schema(response)
-                    responses[str(code)] = self.get_ref("response", response)
+                    response = self.get_ref("response", response)
+                    for media_type in response.get("content", {}).values():
+                        self._resolve_examples(media_type)
+                    responses[str(code)] = response
                 operation["responses"] = responses
